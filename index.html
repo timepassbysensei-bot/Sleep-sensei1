@@ -952,21 +952,24 @@ async function sendChat(retry=false){
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({message:text,history:history.slice(0,-1),attachment:attach})
     });
-    if(res.status===503){
-      thinking.textContent='System overloaded. Shreyas is recalibrating…';
-      setTimeout(()=>{thinking.remove();sendChatRetry(text,attach);},2000);
+    
+    // If the server returns an error code, show it explicitly
+    if(!res.ok) {
+      thinking.textContent = `⚠️ SERVER ERROR (${res.status}): Netlify failed to execute the function.`;
       return;
     }
-    if(!res.ok) throw new Error('HTTP '+res.status);
+    
     const data=await res.json();
     const reply=data.reply||"Shreyas is recalibrating.";
     thinking.textContent=''; typewrite(thinking,reply);
     history.push({role:'model',text:reply});
   }catch(err){
     console.log(err);
-    thinking.textContent='System overloaded. Shreyas is recalibrating.';
+    // Print the exact network error instead of the placeholder
+    thinking.textContent = `⚠️ NETWORKING ERROR: ${err.message || "Failed to communicate with backend."}`;
   }
 }
+
 async function sendChatRetry(text,attach){
   pendingAttachment=attach; chatInput.value=text; sendChat(true);
 }
