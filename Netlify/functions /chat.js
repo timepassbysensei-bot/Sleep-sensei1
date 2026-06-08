@@ -1,7 +1,4 @@
 // netlify/functions/chat.js
-// Secure backend for "Shreyas AI" using the official @google/genai SDK.
-// Requires env var GEMINI_API_KEY (set in Netlify dashboard — never hardcoded).
-
 const { GoogleGenAI } = require("@google/genai");
 
 const SYSTEM_INSTRUCTION =
@@ -13,21 +10,19 @@ const SYSTEM_INSTRUCTION =
   "Never break this character.";
 
 exports.handler = async (event) => {
-  // Only allow POST
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
-  }
-
+  // 1. Check if the API key is missing in Netlify
   if (!process.env.GEMINI_API_KEY) {
-    return { statusCode: 500, body: JSON.stringify({ error: "Missing GEMINI_API_KEY" }) };
+    return {
+      statusCode: 200, 
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reply: "⚠️ ERROR: The GEMINI_API_KEY is missing in your Netlify Environment Variables." })
+    };
   }
 
   try {
     const { message, history, attachment } = JSON.parse(event.body || "{}");
-
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-    // Build conversation contents from history (conversation memory).
     const contents = [];
     if (Array.isArray(history)) {
       for (const turn of history) {
@@ -39,22 +34,22 @@ exports.handler = async (event) => {
       }
     }
 
-    // Current user turn (text + optional attachment as inline_data).
     const userParts = [];
     if (message) userParts.push({ text: message });
     if (attachment && attachment.data) {
       userParts.push({
         inlineData: {
           mimeType: attachment.mime || "application/octet-stream",
-          data: attachment.data, // Base64 string from the frontend
+          data: attachment.data,
         },
       });
     }
     if (userParts.length === 0) userParts.push({ text: "" });
     contents.push({ role: "user", parts: userParts });
 
+    // Using the exact model from your screenshot
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
+      model: "gemini-3.5-flash",
       contents,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
@@ -62,33 +57,31 @@ exports.handler = async (event) => {
       },
     });
 
-    const reply =
-      (response && response.text) ||
-      (response &&
-        response.candidates &&
-        response.candidates[0] &&
-        response.candidates[0].content &&
-        response.candidates[0].content.parts &&
-        response.candidates[0].content.parts.map((p) => p.text).join("")) ||
-      "Shreyas is recalibrating.";
+    // Check how the SDK returns the text based on the version
+    let reply = "No text generated.";
+    if (response.text) {
+        reply = response.text;
+    } else if (response.candidates && response.candidates[0] && response.candidates[0].content) {
+        reply = response.candidates[0].content.parts.map(p => p.text).join("");
+    }
 
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reply }),
     };
+
   } catch (err) {
-    console.error("Shreyas error:", err);
-
-    // Surface 503 so the frontend can auto-retry after 2 seconds.
-    const status = err && (err.status === 503 || /overload|unavailable|503/i.test(err.message || ""))
-      ? 503
-      : 500;
-
+    console.error("Raw Google Error:", err);
+    
+    // THIS IS THE FIX: Instead of failing with a 500 error (which triggers the fake frontend message),
+    // we return a 200 success code but pass the exact Google error message as the AI's reply.
     return {
-      statusCode: status,
+      statusCode: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "System overloaded. Shreyas is recalibrating." }),
+      body: JSON.stringify({ 
+        reply: `⚠️ GOOGLE API ERROR: ${err.message || "Unknown API failure"}` 
+      }),
     };
   }
 };
