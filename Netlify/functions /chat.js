@@ -54,7 +54,7 @@ exports.handler = async (event) => {
     contents.push({ role: "user", parts: userParts });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
